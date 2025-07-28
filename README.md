@@ -10,9 +10,3 @@ It visualizes the emergence of structure from a true null state using a grid-bas
 - Step-by-step time navigation
 - Observer logic highlight
 - Designed for mobile and desktop (iPhone compatible)
-
-## Live Demo
-Once deployed via GitHub Pages, visit:
-
-https://bvorall.github.io/the-first-distinction/
-
