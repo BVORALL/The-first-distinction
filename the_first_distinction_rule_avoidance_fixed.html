@@ -1,0 +1,163 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Rule Avoidance Simulation</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    #info, #controls {
+      position: absolute;
+      font-family: sans-serif;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      padding: 10px;
+      border-radius: 5px;
+    }
+    #info { top: 10px; left: 10px; }
+    #controls { bottom: 10px; left: 10px; }
+  </style>
+</head>
+<body>
+<div id="info">Loading...</div>
+<div id="controls"><button onclick="downloadLogs()">Download Logs</button></div>
+<script>
+let gridSize = 20, cellSize = 20, maxLayers = 40, frameCounter = 0;
+let observerPos = {i: 5, j: 5}, layers = [], entropyLog = [], mutationLog = [];
+let entropyThreshold = 0.4, entropyWindow = [], badRules = {}, ruleCooldown = {};
+let ruleSet = ['A', 'B', 'C'], currentRuleIndex = 0, currentRule = 'A';
+
+function setup() {
+  createCanvas(windowWidth, windowHeight, WEBGL);
+  frameRate(5);
+  initGrid();
+}
+
+function initGrid() {
+  let grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
+  grid[observerPos.i][observerPos.j] = 2;
+  layers.push(grid);
+}
+
+function localEntropy(grid, i, j) {
+  let total = 0, count = 0;
+  for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) {
+    let ni = i + x, nj = j + y;
+    if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+      total += grid[ni][nj] > 0 ? 1 : 0;
+      count++;
+    }
+  }
+  return total / count;
+}
+
+function calculateEntropy(grid) {
+  let flat = grid.flat().filter(x => x < 2);
+  let count = flat.reduce((a, b) => a + b, 0);
+  return count / flat.length;
+}
+
+function moveObserver(grid) {
+  let best = observerPos, maxE = -1;
+  for (let i = 0; i < gridSize; i++) for (let j = 0; j < gridSize; j++) {
+    let e = localEntropy(grid, i, j);
+    if (e > maxE) { maxE = e; best = {i, j}; }
+  }
+  return best;
+}
+
+function updateGrid(grid, rule) {
+  let newGrid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
+  for (let i = 0; i < gridSize; i++) for (let j = 0; j < gridSize; j++) {
+    let total = 0;
+    for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) {
+      let ni = i + x, nj = j + y;
+      if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+        total += grid[ni][nj] > 0 ? 1 : 0;
+      }
+    }
+    total -= grid[i][j] > 0 ? 1 : 0;
+    if (i === observerPos.i && j === observerPos.j) newGrid[i][j] = 2;
+    else if (rule === 'A') newGrid[i][j] = (grid[i][j] == 0 && total == 1) ? 1 : (grid[i][j] == 1 && total >= 3) ? 0 : grid[i][j];
+    else if (rule === 'B') newGrid[i][j] = (grid[i][j] == 0 && total == 2) ? 1 : (grid[i][j] == 1 && total < 2) ? 0 : grid[i][j];
+    else newGrid[i][j] = (grid[i][j] == 0 && total == 3) ? 1 : (grid[i][j] == 1 && total == 2) ? 1 : 0;
+  }
+  return newGrid;
+}
+
+function draw() {
+  background(0);
+  orbitControl();
+  rotateX(PI / 4);
+  rotateZ(frameCount * 0.01);
+  let zStep = cellSize * 0.8;
+
+  for (let z = 0; z < layers.length; z++) {
+    for (let i = 0; i < gridSize; i++) for (let j = 0; j < gridSize; j++) {
+      let val = layers[z][i][j];
+      if (val > 0) {
+        push();
+        translate((i - gridSize/2) * cellSize, (j - gridSize/2) * cellSize, -z * zStep);
+        fill(val === 2 ? 'red' : `rgb(${120 + val * 40},150,${255 - val * 60})`);
+        noStroke(); box(cellSize * 0.8);
+        pop();
+      }
+    }
+  }
+
+  let entropy = calculateEntropy(layers[layers.length - 1]);
+  entropyLog.push(entropy);
+  observerPos = moveObserver(layers[layers.length - 1]);
+
+  entropyWindow.push(entropy);
+  if (entropyWindow.length > 10) entropyWindow.shift();
+  let avg = entropyWindow.reduce((a, b) => a + b, 0) / entropyWindow.length;
+  let dev = entropyWindow.reduce((a, b) => a + Math.abs(b - avg), 0) / entropyWindow.length;
+
+  if (dev < 0.005 && entropy < entropyThreshold) {
+    if (!badRules[currentRule]) badRules[currentRule] = 0;
+    badRules[currentRule]++;
+    ruleCooldown[currentRule] = frameCounter + 50;
+    let newRule = currentRule;
+    for (let i = 0; i < ruleSet.length; i++) {
+      let tryRule = ruleSet[(currentRuleIndex + i + 1) % ruleSet.length];
+      if (!ruleCooldown[tryRule] || frameCounter > ruleCooldown[tryRule]) {
+        newRule = tryRule;
+        currentRuleIndex = ruleSet.indexOf(newRule);
+        break;
+      }
+    }
+    currentRule = newRule;
+    entropyThreshold = Math.max(0.01, entropy - 0.01);
+    mutationLog.push({
+      frame: frameCounter,
+      rule: currentRule,
+      entropy: entropy,
+      threshold: entropyThreshold,
+      reason: "stabilization+avoid"
+    });
+  }
+
+  let nextGrid = updateGrid(layers[layers.length - 1], currentRule);
+  layers.push(nextGrid);
+  if (layers.length > maxLayers) layers.shift();
+
+  document.getElementById("info").innerText =
+    `Frame: ${frameCounter} | Entropy: ${entropy.toFixed(2)} | Rule: ${currentRule} | Threshold: ${entropyThreshold.toFixed(2)}`;
+  frameCounter++;
+}
+
+function downloadLogs() {
+  const data = { entropyLog, mutationLog };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'rule_avoidance_log.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
