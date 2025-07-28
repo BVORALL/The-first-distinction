@@ -14,6 +14,5 @@ It visualizes the emergence of structure from a true null state using a grid-bas
 ## Live Demo
 Once deployed via GitHub Pages, visit:
 
-https://yourusername.github.io/the-first-distinction/
+https://bvorall.github.io/the-first-distinction/
 
-Replace `yourusername` with your actual GitHub username after publishing.
