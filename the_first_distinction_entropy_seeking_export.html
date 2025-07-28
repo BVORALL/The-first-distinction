@@ -1,0 +1,188 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Entropy-Seeking Observer</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js">
+function downloadLogs() {
+  const data = {
+    entropyLog: entropyLog,
+    mutationLog: mutationLog
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'entropy_seeking_observer_log.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      font-family: sans-serif;
+      padding: 10px;
+      border-radius: 5px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="controls" style="position:absolute;bottom:10px;left:10px;background:rgba(0,0,0,0.6);padding:10px;border-radius:5px;">
+  <button onclick="downloadLogs()">Download Logs</button>
+</div>
+<div id="info">
+Entropy-Seeking Observer Active</div>
+<script>
+let gridSize = 20;
+let cellSize = 20;
+let layers = [];
+let maxLayers = 40;
+let currentRule = "A";
+let observerPos = {i: 5, j: 5};
+let entropyLog = [];
+let mutationLog = [];
+let frameCounter = 0;
+let observerInterval = 20;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight, WEBGL);
+  frameRate(5);
+  initGrid();
+}
+
+function initGrid() {
+  let grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
+  grid[observerPos.i][observerPos.j] = 2;
+  layers.push(grid);
+}
+
+function updateGrid(grid, rule) {
+  let newGrid = [];
+  for (let i = 0; i < gridSize; i++) {
+    newGrid[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      let total = 0;
+      for (let x = -1; x <= 1; x++) {
+        for (let y = -1; y <= 1; y++) {
+          let ni = i + x, nj = j + y;
+          if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+            total += (grid[ni][nj] > 0 ? 1 : 0);
+          }
+        }
+      }
+      total -= (grid[i][j] > 0 ? 1 : 0);
+      if (i === observerPos.i && j === observerPos.j) newGrid[i][j] = 2;
+      else if (rule === 'A') newGrid[i][j] = (grid[i][j] == 0 && total == 1) ? 1 : (grid[i][j] == 1 && total >= 3) ? 0 : grid[i][j];
+      else if (rule === 'B') newGrid[i][j] = (grid[i][j] == 0 && total == 2) ? 1 : (grid[i][j] == 1 && total < 2) ? 0 : grid[i][j];
+      else newGrid[i][j] = (grid[i][j] == 0 && total == 3) ? 1 : (grid[i][j] == 1 && total == 2) ? 1 : 0;
+    }
+  }
+  return newGrid;
+}
+
+function calculateEntropy(grid) {
+  let flat = grid.flat().filter(x => x < 2);
+  let count = flat.reduce((sum, val) => sum + val, 0);
+  return count / flat.length;
+}
+
+function localEntropy(grid, i, j) {
+  let total = 0, count = 0;
+  for (let x = -1; x <= 1; x++) {
+    for (let y = -1; y <= 1; y++) {
+      let ni = i + x, nj = j + y;
+      if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+        total += (grid[ni][nj] > 0 ? 1 : 0);
+        count++;
+      }
+    }
+  }
+  return total / count;
+}
+
+function moveObserver(grid) {
+  let maxEntropy = -1;
+  let bestPos = observerPos;
+  for (let i = 0; i < gridSize; i++) {
+    for (let j = 0; j < gridSize; j++) {
+      let ent = localEntropy(grid, i, j);
+      if (ent > maxEntropy) {
+        maxEntropy = ent;
+        bestPos = { i, j };
+      }
+    }
+  }
+  return bestPos;
+}
+
+function draw() {
+  background(0);
+  orbitControl();
+  rotateX(PI / 4);
+  rotateZ(frameCount * 0.01);
+
+  let zStep = cellSize * 0.8;
+  for (let z = 0; z < layers.length; z++) {
+    for (let i = 0; i < gridSize; i++) {
+      for (let j = 0; j < gridSize; j++) {
+        let val = layers[z][i][j];
+        if (val > 0) {
+          push();
+          translate((i - gridSize/2) * cellSize, (j - gridSize/2) * cellSize, -z * zStep);
+          if (val === 2) fill(255, 0, 0);
+          else fill(120 + val * 40, 150, 255 - val * 60);
+          noStroke();
+          box(cellSize * 0.8);
+          pop();
+        }
+      }
+    }
+  }
+
+  let entropy = calculateEntropy(layers[layers.length - 1]);
+  entropyLog.push(entropy);
+
+  if (entropy > 0.55) {
+    currentRule = currentRule === 'A' ? 'B' : currentRule === 'B' ? 'C' : 'A';
+    mutationLog.push({ frame: frameCounter, rule: currentRule, entropy: entropy });
+  }
+
+  if (frameCounter % observerInterval === 0) {
+    observerPos = moveObserver(layers[layers.length - 1]);
+  }
+
+  let nextGrid = updateGrid(layers[layers.length - 1], currentRule);
+  layers.push(nextGrid);
+  if (layers.length > maxLayers) layers.shift();
+
+  document.getElementById("info").innerText =
+    `Frame: ${frameCounter} | Entropy: ${entropy.toFixed(2)} | Rule: ${currentRule} | Observer: (${observerPos.i},${observerPos.j})`;
+  frameCounter++;
+}
+
+function downloadLogs() {
+  const data = {
+    entropyLog: entropyLog,
+    mutationLog: mutationLog
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'entropy_seeking_observer_log.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+
+</body>
+</html>
