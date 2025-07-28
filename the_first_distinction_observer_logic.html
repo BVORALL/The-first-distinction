@@ -1,0 +1,489 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>The First Distinction - Rule Mutation Engine</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js">
+document.addEventListener("DOMContentLoaded", function() {
+  const ctx = document.getElementById('entropyChart').getContext('2d');
+  window.entropyChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Entropy',
+        data: [],
+        borderColor: 'red',
+        borderWidth: 2,
+        fill: false,
+        tension: 0.2
+      }]
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      scales: {
+        y: {
+          min: 0,
+          max: 1
+        }
+      }
+    }
+  });
+});
+
+let injectFlag = false;
+function injectEntropy() {
+  injectFlag = true;
+}
+
+function downloadLogs() {
+  const data = {
+    entropyLog: entropyLog,
+    mutationLog: mutationLog
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'distinction_logs.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  const ruleCtx = document.getElementById('ruleChart').getContext('2d');
+  window.ruleChart = new Chart(ruleCtx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Rule Index (A=0.3, B=0.6, C=0.9)',
+        data: [],
+        borderColor: 'blue',
+        borderWidth: 2,
+        fill: false,
+        tension: 0.2
+      }]
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      scales: {
+        y: {
+          min: 0,
+          max: 1
+        }
+      }
+    }
+  });
+});
+</script>
+
+
+
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      font-family: sans-serif;
+      padding: 10px;
+      border-radius: 5px;
+    }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js">
+document.addEventListener("DOMContentLoaded", function() {
+  const ctx = document.getElementById('entropyChart').getContext('2d');
+  window.entropyChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Entropy',
+        data: [],
+        borderColor: 'red',
+        borderWidth: 2,
+        fill: false,
+        tension: 0.2
+      }]
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      scales: {
+        y: {
+          min: 0,
+          max: 1
+        }
+      }
+    }
+  });
+});
+
+let injectFlag = false;
+function injectEntropy() {
+  injectFlag = true;
+}
+
+function downloadLogs() {
+  const data = {
+    entropyLog: entropyLog,
+    mutationLog: mutationLog
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'distinction_logs.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  const ruleCtx = document.getElementById('ruleChart').getContext('2d');
+  window.ruleChart = new Chart(ruleCtx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Rule Index (A=0.3, B=0.6, C=0.9)',
+        data: [],
+        borderColor: 'blue',
+        borderWidth: 2,
+        fill: false,
+        tension: 0.2
+      }]
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      scales: {
+        y: {
+          min: 0,
+          max: 1
+        }
+      }
+    }
+  });
+});
+</script>
+
+
+
+</head>
+
+<body>
+
+
+<div id="controls" style="position:absolute;bottom:10px;left:10px;background:rgba(0,0,0,0.6);padding:10px;border-radius:5px;">
+  <button onclick="injectEntropy()">Inject Entropy</button>
+  <button onclick="downloadLogs()">Download Logs</button>
+</div>
+
+<div id="info">Entropy-driven Rule Mutation Prototype</div>
+<canvas id="ruleChart" width="300" height="100" style="position:absolute;bottom:10px;right:10px;background:white;"></canvas>
+
+Entropy-driven Rule Mutation Prototype</div>
+<canvas id="entropyChart" width="300" height="100" style="position:absolute;top:10px;right:10px;background:white;"></canvas>
+
+<script>
+let gridSize = 20;
+let cellSize = 20;
+let layers = [];
+let maxLayers = 40;
+let currentRule = "A";
+let entropyThreshold = 0.55; 
+// when entropy passes this, mutate rule
+
+function localEntropy(grid, i, j) {
+  let total = 0;
+  let count = 0;
+  for (let x = -1; x <= 1; x++) {
+    for (let y = -1; y <= 1; y++) {
+      let ni = i + x;
+      let nj = j + y;
+      if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+        total += grid[ni][nj];
+        count++;
+      }
+    }
+  }
+  return total / count;
+}
+
+
+function setup() {
+  createCanvas(windowWidth, windowHeight, WEBGL);
+  frameRate(5);
+  initGrid();
+}
+
+function initGrid() {
+  let grid = [];
+  for (let i = 0; i < gridSize; i++) {
+    grid[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      grid[i][j] = 0;
+    }
+  }
+  grid[Math.floor(gridSize / 2)][Math.floor(gridSize / 2)] = 1;
+  layers.push(grid);
+}
+
+function updateGrid(grid, rule) {
+  let newGrid = [];
+  for (let i = 0; i < gridSize; i++) {
+    newGrid[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      let total = 0;
+      for (let x = -1; x <= 1; x++) {
+        for (let y = -1; y <= 1; y++) {
+          let ni = i + x;
+          let nj = j + y;
+          if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+            total += grid[ni][nj];
+          }
+        }
+      }
+      total -= grid[i][j];
+      if (rule === 'A') {
+        newGrid[i][j] = (grid[i][j] == 0 && total == 1) ? 1 : (grid[i][j] == 1 && total >= 3) ? 0 : grid[i][j];
+      } else if (rule === 'B') {
+        newGrid[i][j] = (grid[i][j] == 0 && total == 2) ? 1 : (grid[i][j] == 1 && total < 2) ? 0 : grid[i][j];
+      } else {
+        newGrid[i][j] = (grid[i][j] == 0 && total == 3) ? 1 : (grid[i][j] == 1 && total == 2) ? 1 : 0;
+      }
+    }
+  }
+  return newGrid;
+}
+
+function calculateEntropy(grid) {
+  let flat = grid.flat();
+  let count = flat.reduce((sum, val) => sum + val, 0);
+  return count / flat.length;
+}
+
+
+let entropyLog = [];
+
+let mutationLog = [];
+let ruleLog = [];
+
+
+
+function updateRuleChart(rule) {
+  ruleLog.push(rule === "A" ? 0.3 : rule === "B" ? 0.6 : 0.9);
+  if (ruleLog.length > 100) ruleLog.shift();
+  if (window.ruleChart) {
+    window.ruleChart.data.labels = ruleLog.map((_, i) => i);
+    window.ruleChart.data.datasets[0].data = ruleLog;
+    window.ruleChart.update();
+  }
+}
+
+function logMutation(rule, entropy) {
+  mutationLog.push({ frame: frameCount, rule: rule, entropy: entropy });
+  console.log("Mutation Event:", { frame: frameCount, rule, entropy });
+}
+
+  mutationLog.push({ frame: frameCount, rule: rule, entropy: entropy });
+  console.log("Mutation Event:", { frame: frameCount, rule, entropy });
+}
+
+function updateChart(entropy) {
+  entropyLog.push(entropy);
+  if (entropyLog.length > 100) entropyLog.shift();
+  if (window.entropyChart) {
+    window.entropyChart.data.labels = entropyLog.map((_, i) => i);
+    window.entropyChart.data.datasets[0].data = entropyLog;
+    window.entropyChart.update();
+  }
+}
+
+
+let baseThreshold = 0.55;
+let fluctuation = 0.05;
+
+function adaptiveThreshold() {
+  return baseThreshold + fluctuation * Math.sin(frameCount / 30);
+}
+
+function mutateRule(entropy) {
+  let currentThreshold = adaptiveThreshold();
+  if (entropy > currentThreshold) {
+    currentRule = currentRule === 'A' ? 'B' : (currentRule === 'B' ? 'C' : 'A');
+    logMutation(currentRule, entropy);
+  }
+}
+
+  if (entropy > entropyThreshold) {
+    currentRule = currentRule === 'A' ? 'B' : (currentRule === 'B' ? 'C' : 'A');
+    logMutation(currentRule, entropy);
+  }
+}
+
+  if (entropy > entropyThreshold) {
+    currentRule = currentRule === 'A' ? 'B' : (currentRule === 'B' ? 'C' : 'A');
+  }
+}
+
+function draw() {
+  background(0);
+  orbitControl();
+  rotateX(PI / 4);
+  rotateZ(frameCount * 0.01);
+
+  let zStep = cellSize * 0.8;
+  for (let z = 0; z < layers.length; z++) {
+    for (let i = 0; i < gridSize; i++) {
+      for (let j = 0; j < gridSize; j++) {
+        
+let ent = localEntropy(layers[z], i, j);
+let flash = (i === 5 && j === 5 && layers[z][i][j] === 2);
+
+        if (ent > 0) {
+          push();
+          translate((i - gridSize/2) * cellSize, (j - gridSize/2) * cellSize, -z * zStep);
+          
+if (ent > 0.85) { stroke(255, 0, 0); strokeWeight(2); } else { noStroke(); }
+
+if (flash) {
+  fill(255, 0, 0); emissiveMaterial(255, 0, 0);
+} else {
+  fill(ent * 255, 255 - ent * 100, 150);
+}
+
+
+          box(cellSize * 0.8);
+          pop();
+        }
+      }
+    }
+  }
+
+  
+
+let entropy = calculateEntropy(layers[layers.length - 1]);
+
+// Observer-based mutation logic
+let observerCell = layers[layers.length - 1][5][5];
+if (observerCell === 2 && entropy > 0.3) {
+  currentRule = currentRule === 'A' ? 'C' : (currentRule === 'C' ? 'B' : 'A');
+  logMutation(currentRule, entropy);
+}
+
+if (injectFlag) {
+  let mid = Math.floor(gridSize/2);
+  for (let i = -2; i <= 2; i++) {
+    for (let j = -2; j <= 2; j++) {
+      if (mid+i >= 0 && mid+i < gridSize && mid+j >= 0 && mid+j < gridSize) {
+        layers[layers.length - 1][mid+i][mid+j] = 1;
+      }
+    }
+  }
+  injectFlag = false;
+}
+
+  mutateRule(entropy);
+
+  let nextGrid = updateGrid(layers[layers.length - 1], currentRule);
+  layers.push(nextGrid);
+  if (layers.length > maxLayers) {
+    layers.shift();
+  }
+
+  updateChart(entropy);
+  
+updateRuleChart(currentRule);
+  document.getElementById("info").innerText =
+
+    `Rule: ${currentRule} | Entropy: ${entropy.toFixed(2)}`;
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  const ctx = document.getElementById('entropyChart').getContext('2d');
+  window.entropyChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Entropy',
+        data: [],
+        borderColor: 'red',
+        borderWidth: 2,
+        fill: false,
+        tension: 0.2
+      }]
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      scales: {
+        y: {
+          min: 0,
+          max: 1
+        }
+      }
+    }
+  });
+});
+
+let injectFlag = false;
+function injectEntropy() {
+  injectFlag = true;
+}
+
+function downloadLogs() {
+  const data = {
+    entropyLog: entropyLog,
+    mutationLog: mutationLog
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'distinction_logs.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  const ruleCtx = document.getElementById('ruleChart').getContext('2d');
+  window.ruleChart = new Chart(ruleCtx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Rule Index (A=0.3, B=0.6, C=0.9)',
+        data: [],
+        borderColor: 'blue',
+        borderWidth: 2,
+        fill: false,
+        tension: 0.2
+      }]
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      scales: {
+        y: {
+          min: 0,
+          max: 1
+        }
+      }
+    }
+  });
+});
+</script>
+
+
+
+</body>
+</html>
