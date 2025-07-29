@@ -1,0 +1,198 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>The First Distinction – v8.2 (Temporal Stack Mating)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <style>body { margin: 0; background: black; overflow: hidden; }</style>
+</head>
+<body>
+<button onclick="downloadLog()">Download Mating Log</button>
+<script>
+let gridSize = 20, cellSize = 20, zMax = 50;
+let layers = [], agents = [], frameCounter = 0;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight, WEBGL);
+  frameRate(5);
+  initLayer();
+  agents.push(new Agent("Alpha", {i: 5, j: 5}, "red"));
+  agents.push(new Agent("Beta", {i: 15, j: 15}, "blue"));
+}
+
+function initLayer() {
+  let grid = [];
+  for (let i = 0; i < gridSize; i++) {
+    grid[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      grid[i][j] = 0;
+    }
+  }
+  layers.push(grid);
+}
+
+function updateGrid(grid) {
+  let newGrid = [];
+  for (let i = 0; i < gridSize; i++) {
+    newGrid[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      let sum = 0;
+      for (let x = -1; x <= 1; x++) {
+        for (let y = -1; y <= 1; y++) {
+          let ni = i + x;
+          let nj = j + y;
+          if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+            sum += grid[ni][nj];
+          }
+        }
+      }
+      sum -= grid[i][j];
+      newGrid[i][j] = (grid[i][j] === 1 && (sum === 2 || sum === 3)) || (grid[i][j] === 0 && sum === 3) ? 1 : 0;
+    }
+  }
+  return newGrid;
+}
+
+class Agent {
+  constructor(name, pos, color, parents = []) {
+    this.name = name;
+    this.pos = pos;
+    this.color = color;
+    this.memory = [];
+    this.parents = parents;
+    this.entropyHistory = [];
+    this.readyToMate = false;
+  }
+
+  act(currentGrid) {
+    let entropy = calculateEntropy(currentGrid, this.name);
+    this.entropyHistory.push(entropy);
+    if (this.entropyHistory.length > 10) this.entropyHistory.shift();
+    let avg = this.entropyHistory.reduce((a, b) => a + b, 0) / this.entropyHistory.length;
+    this.readyToMate = avg > 0.4;
+
+    if (avg < 0.3) this.stimulate(currentGrid);
+    else this.move(currentGrid);
+    this.tryMating();
+    this.memory.push({
+      frame: frameCounter,
+      entropy,
+      position: { ...this.pos },
+      parents: this.parents
+    });
+  }
+
+  move(grid) {
+    let options = [
+      {i: this.pos.i - 1, j: this.pos.j},
+      {i: this.pos.i + 1, j: this.pos.j},
+      {i: this.pos.i, j: this.pos.j - 1},
+      {i: this.pos.i, j: this.pos.j + 1}
+    ];
+    let valid = options.filter(p =>
+      p.i >= 0 && p.i < gridSize && p.j >= 0 && p.j < gridSize
+    );
+    if (valid.length > 0) {
+      let next = random(valid);
+      this.pos = {i: next.i, j: next.j};
+    }
+  }
+
+  stimulate(grid) {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        let ni = this.pos.i + dx;
+        let nj = this.pos.j + dy;
+        if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+          grid[ni][nj] = 1;
+        }
+      }
+    }
+  }
+
+  tryMating() {
+    if (!this.readyToMate) return;
+    for (let other of agents) {
+      if (other !== this && other.readyToMate && dist(this.pos.i, this.pos.j, other.pos.i, other.pos.j) <= 1) {
+        let childName = `${this.name}-${other.name}-${frameCounter}`;
+        let childColor = lerpColor(color(this.color), color(other.color), 0.5).toString();
+        let childPos = {
+          i: constrain(this.pos.i + floor(random(-1, 2)), 0, gridSize - 1),
+          j: constrain(this.pos.j + floor(random(-1, 2)), 0, gridSize - 1)
+        };
+        let child = new Agent(childName, childPos, childColor, [this.name, other.name]);
+        child.memory = this.memory.slice(-5).concat(other.memory.slice(-5));
+        agents.push(child);
+        this.readyToMate = false;
+        other.readyToMate = false;
+        break;
+      }
+    }
+  }
+}
+
+function calculateEntropy(grid, agentName) {
+  let total = gridSize * gridSize;
+  let active = 0;
+  for (let i = 0; i < gridSize; i++) {
+    for (let j = 0; j < gridSize; j++) {
+      if (grid[i][j] === 1) active++;
+    }
+  }
+  return active / total;
+}
+
+function draw() {
+  background(0);
+  rotateX(PI / 4);
+  rotateZ(frameCounter * 0.005);
+
+  let lastGrid = layers[layers.length - 1];
+  for (let agent of agents) {
+    agent.act(lastGrid);
+  }
+
+  let nextGrid = updateGrid(lastGrid);
+  layers.push(nextGrid);
+  if (layers.length > zMax) layers.shift();
+
+  drawStack();
+  frameCounter++;
+}
+
+function drawStack() {
+  let zStep = cellSize * 1.1;
+  for (let z = 0; z < layers.length; z++) {
+    let layer = layers[z];
+    for (let i = 0; i < gridSize; i++) {
+      for (let j = 0; j < gridSize; j++) {
+        if (layer[i][j] === 1) {
+          push();
+          translate((i - gridSize / 2) * cellSize, (j - gridSize / 2) * cellSize, -z * zStep);
+          fill(255);
+          box(cellSize * 0.6);
+          pop();
+        }
+      }
+    }
+  }
+}
+
+function downloadLog() {
+  const log = {};
+  for (let agent of agents) {
+    log[agent.name] = {
+      parents: agent.parents,
+      memory: agent.memory
+    };
+  }
+  const blob = new Blob([JSON.stringify(log, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = "cognitive_scaffold_v8_2_log.json";
+  a.click();
+}
+</script>
+</body>
+</html>
