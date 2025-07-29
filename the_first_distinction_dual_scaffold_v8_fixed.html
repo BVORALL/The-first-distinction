@@ -1,0 +1,261 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>The First Distinction – Dual Scaffold v8 (Fixed)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    #ui { position: absolute; bottom: 10px; left: 10px; color: white; font-family: sans-serif; z-index: 10; }
+  </style>
+</head>
+<body>
+<div id="ui">
+  <button onclick="downloadLogs()">Download Logs</button>
+</div>
+<script>
+let gridSize = 20, cellSize = 20;
+let scaffolds = [], globalLog = [], frameCounter = 0;
+let migrationInterval = 100;
+
+function setup() {
+  createCanvas(gridSize * cellSize * 2 + 20, gridSize * cellSize);
+  frameRate(5);
+  scaffolds.push(new Scaffold(0, 0));
+  scaffolds.push(new Scaffold(1, gridSize * cellSize + 20));
+  for (let s of scaffolds) {
+    s.initGrid();
+    s.initAgents();
+  }
+}
+
+class Scaffold {
+  constructor(id, xOffset) {
+    this.id = id;
+    this.xOffset = xOffset;
+    this.grid = [];
+    this.agents = [];
+    this.ruleSet = ['A', 'B', 'C'];
+    this.ruleIndex = 0;
+    this.currentRule = this.ruleSet[0];
+    this.entropyTarget = 0.3;
+    this.driftDirection = 1;
+    this.failRules = new Set();
+    this.entropyLog = [];
+  }
+
+  initGrid() {
+    for (let i = 0; i < gridSize; i++) {
+      this.grid[i] = [];
+      for (let j = 0; j < gridSize; j++) {
+        this.grid[i][j] = 0;
+      }
+    }
+  }
+
+  initAgents() {
+    const positions = [{i: 5, j: 5}, {i: 15, j: 15}];
+    for (let idx in positions) {
+      const pos = positions[idx];
+      this.grid[pos.i][pos.j] = 2;
+      this.agents.push(new Agent(`S${this.id}_A${idx}`, pos, this));
+    }
+  }
+
+  drawGrid() {
+    for (let i = 0; i < gridSize; i++) {
+      for (let j = 0; j < gridSize; j++) {
+        stroke(50);
+        let x = this.xOffset + j * cellSize;
+        let y = i * cellSize;
+        if (this.grid[i][j] === 2) fill('red');
+        else fill(this.grid[i][j] === 1 ? 255 : 0);
+        rect(x, y, cellSize, cellSize);
+      }
+    }
+  }
+}
+
+class Agent {
+  constructor(id, pos, scaffold) {
+    this.id = id;
+    this.pos = pos;
+    this.grid = scaffold.grid;
+    this.scaffold = scaffold;
+    this.prevEntropy = 0;
+    this.failCount = 0;
+    this.memory = [];
+    this.stimCounter = 0;
+  }
+
+  sense(entropy) {
+    this.reward = entropy - this.prevEntropy;
+    this.prevEntropy = entropy;
+    this.memory.push({ entropy: entropy, reward: this.reward });
+    if (this.memory.length > 20) this.memory.shift();
+  }
+
+  act() {
+    const predicted = simulateEntropyAfterStim(this.pos, this.grid);
+    const expectedGain = predicted - this.prevEntropy;
+    if (expectedGain < 0.01) this.failCount++;
+    else this.failCount = 0;
+
+    if (this.prevEntropy < this.scaffold.entropyTarget && this.stimCounter < 3) {
+      this.stimCounter++;
+      return 'stimulate';
+    }
+
+    return Math.random() < 0.02 ? 'mutate_environment' : 'move';
+  }
+
+  move() {
+    let options = [
+      {i: this.pos.i - 1, j: this.pos.j},
+      {i: this.pos.i + 1, j: this.pos.j},
+      {i: this.pos.i, j: this.pos.j - 1},
+      {i: this.pos.i, j: this.pos.j + 1}
+    ];
+    let valid = options.filter(p => p.i >= 0 && p.i < gridSize && p.j >= 0 && p.j < gridSize);
+    if (valid.length > 0) {
+      this.grid[this.pos.i][this.pos.j] = 0;
+      let next = random(valid);
+      this.pos = {i: next.i, j: next.j};
+      this.grid[this.pos.i][this.pos.j] = 2;
+    }
+  }
+
+  stimulate() {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        let ni = this.pos.i + dx, nj = this.pos.j + dy;
+        if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize && this.grid[ni][nj] === 0) {
+          this.grid[ni][nj] = 1;
+        }
+      }
+    }
+  }
+
+  mutateEnvironment() {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        let ni = this.pos.i + dx, nj = this.pos.j + dy;
+        if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+          this.grid[ni][nj] = Math.random() < 0.5 ? 1 : 0;
+        }
+      }
+    }
+  }
+
+  exportMemory() {
+    return {
+      entropy: this.prevEntropy,
+      failCount: this.failCount,
+      memory: [...this.memory],
+      rule: this.scaffold.currentRule
+    };
+  }
+
+  importMemory(data) {
+    this.prevEntropy = data.entropy;
+    this.failCount = data.failCount;
+    this.memory = [...data.memory];
+    this.scaffold.ruleIndex = this.scaffold.ruleSet.indexOf(data.rule);
+    this.scaffold.currentRule = data.rule;
+  }
+}
+
+function simulateEntropyAfterStim(pos, grid) {
+  let simulatedGrid = grid.map(row => row.slice());
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      let ni = pos.i + dx, nj = pos.j + dy;
+      if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize && simulatedGrid[ni][nj] === 0) {
+        simulatedGrid[ni][nj] = 1;
+      }
+    }
+  }
+  return calculateEntropy(simulatedGrid);
+}
+
+function calculateEntropy(grid) {
+  let flat = grid.flat().filter(v => v < 2);
+  let active = flat.filter(v => v === 1).length;
+  return active / flat.length;
+}
+
+function draw() {
+  background(0);
+  for (let scaffold of scaffolds) {
+    scaffold.drawGrid();
+    let entropy = calculateEntropy(scaffold.grid);
+    scaffold.entropyLog.push(entropy);
+    let totalFail = 0;
+
+    for (let agent of scaffold.agents) {
+      agent.sense(entropy);
+      let action = agent.act();
+      if (action === 'stimulate') agent.stimulate();
+      if (action === 'move') agent.move();
+      if (action === 'mutate_environment') agent.mutateEnvironment();
+
+      totalFail += agent.failCount;
+
+      globalLog.push({
+        frame: frameCounter,
+        scaffold: scaffold.id,
+        agent: agent.id,
+        action: action,
+        entropy: entropy,
+        rule: scaffold.currentRule
+      });
+    }
+
+    if (totalFail >= 4 && !scaffold.failRules.has(scaffold.currentRule)) {
+      scaffold.failRules.add(scaffold.currentRule);
+      let nextRule = (scaffold.ruleIndex + 1) % scaffold.ruleSet.length;
+      while (scaffold.failRules.has(scaffold.ruleSet[nextRule])) {
+        nextRule = (nextRule + 1) % scaffold.ruleSet.length;
+      }
+      scaffold.ruleIndex = nextRule;
+      scaffold.currentRule = scaffold.ruleSet[nextRule];
+    }
+
+    scaffold.entropyTarget += 0.001 * scaffold.driftDirection;
+    if (scaffold.entropyTarget > 0.6 || scaffold.entropyTarget < 0.2) {
+      scaffold.driftDirection *= -1;
+    }
+  }
+
+  if (frameCounter % migrationInterval === 0) {
+    migrateAgents(scaffolds[0], scaffolds[1]);
+    migrateAgents(scaffolds[1], scaffolds[0]);
+  }
+
+  frameCounter++;
+}
+
+function migrateAgents(fromScaffold, toScaffold) {
+  const migrant = fromScaffold.agents.pop();
+  const target = toScaffold.agents.shift();
+  const newAgent = new Agent(migrant.id, target.pos, toScaffold);
+  newAgent.importMemory(migrant.exportMemory());
+  toScaffold.grid[target.pos.i][target.pos.j] = 0;
+  toScaffold.grid[newAgent.pos.i][newAgent.pos.j] = 2;
+  toScaffold.agents.push(newAgent);
+}
+
+function downloadLogs() {
+  const data = { log: globalLog };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'dual_scaffold_v8_log.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
