@@ -1,0 +1,205 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>The First Distinction – Cognitive Scaffold v7.4 (Competitive Mode)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <style>body { margin: 0; background: black; overflow: hidden; }</style>
+</head>
+<body>
+<button onclick="downloadMemory()">Download Competitive Log</button>
+<script>
+let gridSize = 20, cellSize = 25;
+let grid = [], agents = [], frameCounter = 0;
+let entropyTarget = 0.3, targetDriftRate = 0.001, driftDirection = 1;
+
+function setup() {
+  createCanvas(gridSize * cellSize, gridSize * cellSize);
+  frameRate(5);
+  initGrid();
+  agents.push(new Agent("Alpha", {i: 5, j: 5}, "red"));
+  agents.push(new Agent("Beta", {i: 15, j: 15}, "blue"));
+}
+
+function initGrid() {
+  for (let i = 0; i < gridSize; i++) {
+    grid[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      grid[i][j] = { value: 0, owner: null };
+    }
+  }
+  for (let agent of agents) {
+    grid[agent.pos.i][agent.pos.j].value = 2;
+    grid[agent.pos.i][agent.pos.j].owner = agent.name;
+  }
+}
+
+function drawGrid() {
+  background(0);
+  for (let i = 0; i < gridSize; i++) {
+    for (let j = 0; j < gridSize; j++) {
+      stroke(50);
+      let cell = grid[i][j];
+      if (cell.value === 2) fill(cell.owner === "Alpha" ? "red" : "blue");
+      else if (cell.value === 1) fill(cell.owner === "Alpha" ? "#ff9999" : "#9999ff");
+      else fill(0);
+      rect(j * cellSize, i * cellSize, cellSize, cellSize);
+    }
+  }
+}
+
+function calculateEntropy(agent) {
+  let owned = 0, active = 0;
+  for (let i = 0; i < gridSize; i++) {
+    for (let j = 0; j < gridSize; j++) {
+      let cell = grid[i][j];
+      if (cell.owner === agent.name && cell.value < 2) {
+        owned++;
+        if (cell.value === 1) active++;
+      }
+    }
+  }
+  return owned > 0 ? active / owned : 0;
+}
+
+class Agent {
+  constructor(name, pos, color) {
+    this.name = name;
+    this.pos = pos;
+    this.color = color;
+    this.memory = [];
+    this.score = 0;
+    this.prevEntropy = 0;
+  }
+
+  decide() {
+    let entropy = calculateEntropy(this);
+    let predicted = this.predictEntropy();
+    let delta = entropy - this.prevEntropy;
+
+    // Compare against opponent
+    let opponent = agents.find(a => a.name !== this.name);
+    let opponentEntropy = calculateEntropy(opponent);
+
+    let dialogue = "";
+    if (entropy > opponentEntropy) {
+      dialogue = "I'm ahead. I need to hold this lead.";
+    } else if (entropy < opponentEntropy) {
+      dialogue = "Falling behind. I must disrupt the opponent.";
+    } else {
+      dialogue = "We're equal. I need a breakthrough.";
+    }
+
+    let action = "move";
+    if (delta < 0.01) action = "stimulate";
+    if (Math.random() < 0.02) action = "mutate";
+
+    this.log(action, entropy, predicted, dialogue);
+    this.prevEntropy = entropy;
+    return action;
+  }
+
+  predictEntropy() {
+    return Math.random(); // Placeholder for future modeling
+  }
+
+  log(action, entropy, predicted, thought) {
+    this.memory.push({
+      frame: frameCounter,
+      name: this.name,
+      action: action,
+      entropy_before: this.prevEntropy,
+      predicted_entropy: predicted,
+      actual_entropy: entropy,
+      score: this.score,
+      internal_dialogue: thought,
+      location: { ...this.pos }
+    });
+  }
+
+  move() {
+    let options = [
+      {i: this.pos.i - 1, j: this.pos.j},
+      {i: this.pos.i + 1, j: this.pos.j},
+      {i: this.pos.i, j: this.pos.j - 1},
+      {i: this.pos.i, j: this.pos.j + 1}
+    ];
+    let valid = options.filter(p =>
+      p.i >= 0 && p.i < gridSize &&
+      p.j >= 0 && p.j < gridSize &&
+      grid[p.i][p.j].value < 2
+    );
+    if (valid.length > 0) {
+      grid[this.pos.i][this.pos.j].value = 0;
+      let next = random(valid);
+      this.pos = {i: next.i, j: next.j};
+      grid[this.pos.i][this.pos.j].value = 2;
+      grid[this.pos.i][this.pos.j].owner = this.name;
+    }
+  }
+
+  stimulate() {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        let ni = this.pos.i + dx;
+        let nj = this.pos.j + dy;
+        if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+          let cell = grid[ni][nj];
+          if (cell.value === 0) {
+            cell.value = 1;
+            cell.owner = this.name;
+          }
+        }
+      }
+    }
+  }
+
+  mutate() {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        let ni = this.pos.i + dx;
+        let nj = this.pos.j + dy;
+        if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+          let cell = grid[ni][nj];
+          if (cell.value < 2) {
+            cell.value = Math.random() < 0.5 ? 1 : 0;
+            cell.owner = this.name;
+          }
+        }
+      }
+    }
+  }
+}
+
+function updateGrid() {
+  // Optional: global rules
+}
+
+function draw() {
+  frameCounter++;
+  for (let agent of agents) {
+    let action = agent.decide();
+    if (action === "move") agent.move();
+    if (action === "stimulate") agent.stimulate();
+    if (action === "mutate") agent.mutate();
+  }
+
+  updateGrid();
+  drawGrid();
+}
+
+function downloadMemory() {
+  const data = {};
+  for (let agent of agents) {
+    data[agent.name] = agent.memory;
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = "cognitive_scaffold_v7_4_log.json";
+  a.click();
+}
+</script>
+</body>
+</html>
