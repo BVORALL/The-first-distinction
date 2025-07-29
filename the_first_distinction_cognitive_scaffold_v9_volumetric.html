@@ -1,0 +1,117 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>The First Distinction – v9.0 (Volumetric Cognition)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <style>body { margin: 0; background: black; overflow: hidden; }</style>
+</head>
+<body>
+<button onclick="downloadLog()">Download 3D Agent Log</button>
+<script>
+let size = 10;
+let cellSize = 25;
+let grid = [];
+let agents = [];
+let frameCounter = 0;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight, WEBGL);
+  frameRate(5);
+  initGrid();
+  agents.push(new Agent("Alpha", {x: 5, y: 5, z: 5}, "red"));
+  agents.push(new Agent("Beta", {x: 2, y: 2, z: 2}, "blue"));
+}
+
+function initGrid() {
+  for (let x = 0; x < size; x++) {
+    grid[x] = [];
+    for (let y = 0; y < size; y++) {
+      grid[x][y] = [];
+      for (let z = 0; z < size; z++) {
+        grid[x][y][z] = 0;
+      }
+    }
+  }
+}
+
+class Agent {
+  constructor(name, pos, color) {
+    this.name = name;
+    this.pos = pos;
+    this.color = color;
+    this.memory = [];
+  }
+
+  move() {
+    let directions = [
+      {x: -1, y: 0, z: 0}, {x: 1, y: 0, z: 0},
+      {x: 0, y: -1, z: 0}, {x: 0, y: 1, z: 0},
+      {x: 0, y: 0, z: -1}, {x: 0, y: 0, z: 1}
+    ];
+    let dir = random(directions);
+    let nx = constrain(this.pos.x + dir.x, 0, size - 1);
+    let ny = constrain(this.pos.y + dir.y, 0, size - 1);
+    let nz = constrain(this.pos.z + dir.z, 0, size - 1);
+    this.pos = {x: nx, y: ny, z: nz};
+  }
+
+  stimulate() {
+    grid[this.pos.x][this.pos.y][this.pos.z] = 1;
+  }
+
+  act() {
+    if (random() < 0.6) this.move();
+    else this.stimulate();
+    this.memory.push({
+      frame: frameCounter,
+      position: { ...this.pos }
+    });
+  }
+}
+
+function draw() {
+  background(0);
+  rotateX(PI / 4);
+  rotateZ(frameCount * 0.01);
+
+  for (let agent of agents) {
+    agent.act();
+  }
+
+  drawGrid();
+  frameCounter++;
+}
+
+function drawGrid() {
+  let offset = (size * cellSize) / 2;
+  for (let x = 0; x < size; x++) {
+    for (let y = 0; y < size; y++) {
+      for (let z = 0; z < size; z++) {
+        if (grid[x][y][z] === 1) {
+          push();
+          translate((x - size/2) * cellSize, (y - size/2) * cellSize, (z - size/2) * cellSize);
+          fill(255);
+          box(cellSize * 0.6);
+          pop();
+        }
+      }
+    }
+  }
+}
+
+function downloadLog() {
+  const log = {};
+  for (let agent of agents) {
+    log[agent.name] = agent.memory;
+  }
+  const blob = new Blob([JSON.stringify(log, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = "cognitive_scaffold_v9_log.json";
+  a.click();
+}
+</script>
+</body>
+</html>
