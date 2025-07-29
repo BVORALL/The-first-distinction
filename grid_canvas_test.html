@@ -1,0 +1,42 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Grid Test - Diagnostic</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <style> body { margin: 0; overflow: hidden; background: black; }</style>
+</head>
+<body>
+<script>
+let gridSize = 20, cellSize = 20;
+let grid = [];
+
+function setup() {
+  createCanvas(gridSize * cellSize, gridSize * cellSize);
+  frameRate(1);
+  initGrid();
+}
+
+function initGrid() {
+  for (let i = 0; i < gridSize; i++) {
+    grid[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      grid[i][j] = Math.random() < 0.2 ? 1 : 0;
+    }
+  }
+}
+
+function draw() {
+  background(0);
+  for (let i = 0; i < gridSize; i++) {
+    for (let j = 0; j < gridSize; j++) {
+      stroke(50);
+      fill(grid[i][j] === 1 ? 255 : 0);
+      rect(j * cellSize, i * cellSize, cellSize, cellSize);
+    }
+  }
+}
+</script>
+</body>
+</html>
