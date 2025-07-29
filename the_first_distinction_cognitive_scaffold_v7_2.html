@@ -1,0 +1,229 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>The First Distinction – Cognitive Scaffold v7.2 (Self-Reflective Agents)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <style>body { margin: 0; background: black; overflow: hidden; }</style>
+</head>
+<body>
+<button onclick="downloadMemory()">Download Memory Log</button>
+<script>
+let gridSize = 20, cellSize = 25;
+let grid = [], agents = [], frameCounter = 0;
+let entropyTarget = 0.3, targetDriftRate = 0.001, driftDirection = 1;
+let ruleSet = ['A', 'B', 'C'], ruleIndex = 0, currentRule = ruleSet[ruleIndex];
+
+function setup() {
+  createCanvas(gridSize * cellSize, gridSize * cellSize);
+  frameRate(5);
+  initGrid();
+  agents.push(new Agent("Alpha", {i: 5, j: 5}));
+  agents.push(new Agent("Beta", {i: 15, j: 15}));
+}
+
+function initGrid() {
+  for (let i = 0; i < gridSize; i++) {
+    grid[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      grid[i][j] = 0;
+    }
+  }
+  for (let agent of agents) {
+    grid[agent.pos.i][agent.pos.j] = 2;
+  }
+}
+
+function drawGrid() {
+  background(0);
+  for (let i = 0; i < gridSize; i++) {
+    for (let j = 0; j < gridSize; j++) {
+      stroke(50);
+      if (grid[i][j] === 2) fill('red');
+      else fill(grid[i][j] === 1 ? 255 : 0);
+      rect(j * cellSize, i * cellSize, cellSize, cellSize);
+    }
+  }
+}
+
+function calculateEntropy(grid) {
+  let flat = grid.flat().filter(v => v < 2);
+  let active = flat.filter(v => v === 1).length;
+  return active / flat.length;
+}
+
+function simulateEntropyAfterStim(pos) {
+  let tempGrid = grid.map(row => row.slice());
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      let ni = pos.i + dx, nj = pos.j + dy;
+      if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize && tempGrid[ni][nj] === 0) {
+        tempGrid[ni][nj] = 1;
+      }
+    }
+  }
+  return calculateEntropy(tempGrid);
+}
+
+class Agent {
+  constructor(name, pos) {
+    this.name = name;
+    this.pos = pos;
+    this.memory = [];
+    this.stimCount = 0;
+    this.prevEntropy = 0;
+    this.mood = "neutral";
+  }
+
+  reflect() {
+    const recent = this.memory.slice(-5);
+    const predictionErrors = recent.map(m => Math.abs(m.predicted_entropy - m.actual_entropy));
+    if (predictionErrors.length > 0) {
+      const avgError = predictionErrors.reduce((a,b) => a + b, 0) / predictionErrors.length;
+      this.mood = avgError > 0.05 ? "confused" : avgError < 0.01 ? "confident" : "neutral";
+    }
+
+    const failedStimulations = recent.filter(m => m.action === 'stimulate' && m.actual_entropy < m.predicted_entropy);
+    if (failedStimulations.length >= 3) return 'mutate_environment';
+    return null;
+  }
+
+  decide(entropy) {
+    let predicted = simulateEntropyAfterStim(this.pos);
+    const errorAction = this.reflect();
+
+    if (errorAction) return { action: errorAction, predicted };
+
+    if (entropy < entropyTarget && this.stimCount < 3) {
+      this.stimCount++;
+      return { action: 'stimulate', predicted };
+    }
+
+    return { action: Math.random() < 0.02 ? 'mutate_environment' : 'move', predicted };
+  }
+
+  log(action, entropy, predicted) {
+    this.memory.push({
+      frame: frameCounter,
+      name: this.name,
+      action: action,
+      entropy_before: this.prevEntropy,
+      predicted_entropy: predicted,
+      actual_entropy: entropy,
+      mood: this.mood,
+      internal_dialogue: this.internalThought(action, entropy, predicted),
+      location: { ...this.pos }
+    });
+    this.prevEntropy = entropy;
+  }
+
+  internalThought(action, entropy, predicted) {
+    if (action === 'stimulate' && predicted < entropy) {
+      return `I thought stimulation would help, but entropy dropped.`;
+    }
+    if (action === 'mutate_environment') {
+      return `Maybe a more drastic change will work.`;
+    }
+    if (this.mood === "confused") {
+      return `I'm not sure if my predictions are reliable...`;
+    }
+    if (this.mood === "confident") {
+      return `Things are behaving as expected.`;
+    }
+    return `Trying to stay on course.`;
+  }
+
+  move() {
+    let options = [
+      {i: this.pos.i - 1, j: this.pos.j},
+      {i: this.pos.i + 1, j: this.pos.j},
+      {i: this.pos.i, j: this.pos.j - 1},
+      {i: this.pos.i, j: this.pos.j + 1}
+    ];
+    let valid = options.filter(p => p.i >= 0 && p.i < gridSize && p.j >= 0 && p.j < gridSize);
+    if (valid.length > 0) {
+      grid[this.pos.i][this.pos.j] = 0;
+      let next = random(valid);
+      this.pos = {i: next.i, j: next.j};
+      grid[this.pos.i][this.pos.j] = 2;
+    }
+  }
+
+  stimulate() {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        let ni = this.pos.i + dx, nj = this.pos.j + dy;
+        if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize && grid[ni][nj] === 0) {
+          grid[ni][nj] = 1;
+        }
+      }
+    }
+  }
+
+  mutateEnvironment() {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        let ni = this.pos.i + dx, nj = this.pos.j + dy;
+        if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+          grid[ni][nj] = Math.random() < 0.5 ? 1 : 0;
+        }
+      }
+    }
+  }
+}
+
+function updateGrid() {
+  let newGrid = [];
+  for (let i = 0; i < gridSize; i++) {
+    newGrid[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      let total = 0;
+      for (let x = -1; x <= 1; x++) {
+        for (let y = -1; y <= 1; y++) {
+          let ni = i + x, nj = j + y;
+          if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize && grid[ni][nj] === 1) total++;
+        }
+      }
+      if (grid[i][j] === 2) newGrid[i][j] = 2;
+      else if (currentRule === 'A') newGrid[i][j] = (grid[i][j] === 0 && total === 1) ? 1 : (grid[i][j] === 1 && total >= 3) ? 0 : grid[i][j];
+      else if (currentRule === 'B') newGrid[i][j] = (grid[i][j] === 0 && total === 2) ? 1 : (grid[i][j] === 1 && total <= 1) ? 0 : grid[i][j];
+      else newGrid[i][j] = (grid[i][j] === 0 && total === 3) ? 1 : (grid[i][j] === 1 && (total < 2 || total > 3)) ? 0 : grid[i][j];
+    }
+  }
+  grid = newGrid;
+}
+
+function draw() {
+  let entropy = calculateEntropy(grid);
+  frameCounter++;
+
+  for (let agent of agents) {
+    let { action, predicted } = agent.decide(entropy);
+    if (action === 'stimulate') agent.stimulate();
+    if (action === 'move') agent.move();
+    if (action === 'mutate_environment') agent.mutateEnvironment();
+    agent.log(action, entropy, predicted);
+  }
+
+  entropyTarget += targetDriftRate * driftDirection;
+  if (entropyTarget > 0.6 || entropyTarget < 0.2) driftDirection *= -1;
+
+  updateGrid();
+  drawGrid();
+}
+
+function downloadMemory() {
+  const data = {};
+  for (let agent of agents) {
+    data[agent.name] = agent.memory;
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = "cognitive_scaffold_v7_2_log.json";
+  a.click();
+}
+</script>
+</body>
+</html>
