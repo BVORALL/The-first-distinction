@@ -1,0 +1,165 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>The First Distinction – Cognitive Scaffold v2</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    #ui { position: absolute; bottom: 10px; left: 10px; color: white; font-family: sans-serif; }
+  </style>
+</head>
+<body>
+<div id="ui">
+  <button onclick="downloadLogs()">Download Logs</button>
+</div>
+<script>
+let gridSize = 20, cellSize = 25, grid = [], observer = {i: 10, j: 10};
+let ruleSet = ['A', 'B', 'C'], ruleIndex = 0, currentRule = ruleSet[ruleIndex];
+let entropyLog = [], actionLog = [], agent;
+
+function setup() {
+  createCanvas(gridSize * cellSize, gridSize * cellSize);
+  frameRate(5);
+  initGrid();
+  agent = new Agent();
+}
+
+function initGrid() {
+  for (let i = 0; i < gridSize; i++) {
+    grid[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      grid[i][j] = 0;
+    }
+  }
+  grid[observer.i][observer.j] = 2;
+}
+
+function drawGrid() {
+  background(0);
+  for (let i = 0; i < gridSize; i++) {
+    for (let j = 0; j < gridSize; j++) {
+      stroke(50);
+      if (grid[i][j] === 2) fill('red');
+      else fill(grid[i][j] === 1 ? 255 : 0);
+      rect(j * cellSize, i * cellSize, cellSize, cellSize);
+    }
+  }
+}
+
+function calculateEntropy(grid) {
+  let flat = grid.flat().filter(v => v < 2);
+  let active = flat.filter(v => v === 1).length;
+  return active / flat.length;
+}
+
+function updateGrid(grid, rule) {
+  let newGrid = [];
+  for (let i = 0; i < gridSize; i++) {
+    newGrid[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      let total = 0;
+      for (let x = -1; x <= 1; x++) {
+        for (let y = -1; y <= 1; y++) {
+          let ni = i + x, nj = j + y;
+          if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize && grid[ni][nj] === 1) total++;
+        }
+      }
+      if (grid[i][j] === 2) {
+        newGrid[i][j] = 2;
+      } else {
+        if (rule === 'A') {
+          newGrid[i][j] = (grid[i][j] === 0 && total === 1) ? 1 : (grid[i][j] === 1 && total >= 3) ? 0 : grid[i][j];
+        } else if (rule === 'B') {
+          newGrid[i][j] = (grid[i][j] === 0 && total === 2) ? 1 : (grid[i][j] === 1 && total <= 1) ? 0 : grid[i][j];
+        } else {
+          newGrid[i][j] = (grid[i][j] === 0 && total === 3) ? 1 : (grid[i][j] === 1 && (total < 2 || total > 3)) ? 0 : grid[i][j];
+        }
+      }
+    }
+  }
+  return newGrid;
+}
+
+class Agent {
+  constructor() {
+    this.memory = [];
+    this.prevEntropy = 0;
+    this.stimCounter = 0;
+    this.moveCounter = 0;
+  }
+  sense(entropy) {
+    this.reward = entropy - this.prevEntropy;
+    this.prevEntropy = entropy;
+    this.memory.push({ entropy: entropy, reward: this.reward });
+    if (this.memory.length > 20) this.memory.shift();
+  }
+  act() {
+    if (this.reward < -0.05) return 'change_rule';
+    if (this.prevEntropy < 0.1 && this.stimCounter < 5) { this.stimCounter++; return 'stimulate'; }
+    this.moveCounter++;
+    return 'move';
+  }
+}
+
+function performAction(action) {
+  if (action === 'move') {
+    let options = [
+      {i: observer.i - 1, j: observer.j},
+      {i: observer.i + 1, j: observer.j},
+      {i: observer.i, j: observer.j - 1},
+      {i: observer.i, j: observer.j + 1}
+    ];
+    let valid = options.filter(pos => pos.i >= 0 && pos.i < gridSize && pos.j >= 0 && pos.j < gridSize);
+    if (valid.length > 0) {
+      grid[observer.i][observer.j] = 0;
+      let next = random(valid);
+      observer = {i: next.i, j: next.j};
+      grid[observer.i][observer.j] = 2;
+    }
+  } else if (action === 'change_rule') {
+    ruleIndex = (ruleIndex + 1) % ruleSet.length;
+    currentRule = ruleSet[ruleIndex];
+  } else if (action === 'stimulate') {
+    let neighbors = [-1, 0, 1];
+    for (let dx of neighbors) {
+      for (let dy of neighbors) {
+        let ni = observer.i + dx, nj = observer.j + dy;
+        if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize && grid[ni][nj] === 0) {
+          grid[ni][nj] = 1;
+        }
+      }
+    }
+  }
+}
+
+function draw() {
+  let entropy = calculateEntropy(grid);
+  entropyLog.push(entropy);
+
+  agent.sense(entropy);
+  let action = agent.act();
+  performAction(action);
+  actionLog.push({ frame: frameCount, action: action, entropy: entropy, rule: currentRule });
+
+  grid = updateGrid(grid, currentRule);
+  drawGrid();
+}
+
+function downloadLogs() {
+  const data = {
+    entropyLog: entropyLog,
+    actionLog: actionLog
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'cognitive_scaffold_v2_log.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>
