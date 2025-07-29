@@ -1,0 +1,181 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>The First Distinction – v8.1 (Selective Mating)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <style>body { margin: 0; overflow: hidden; background: black; }</style>
+</head>
+<body>
+<button onclick="downloadLog()">Download Lineage Log</button>
+<script>
+let gridSize = 20, cellSize = 25;
+let grid = [], agents = [], frameCounter = 0, entropyLog = [];
+
+function setup() {
+  createCanvas(gridSize * cellSize, gridSize * cellSize);
+  frameRate(5);
+  initGrid();
+  agents.push(new Agent("Alpha", {i: 5, j: 5}, "red", []));
+  agents.push(new Agent("Beta", {i: 15, j: 15}, "blue", []));
+}
+
+function initGrid() {
+  for (let i = 0; i < gridSize; i++) {
+    grid[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      grid[i][j] = { value: 0, owner: null };
+    }
+  }
+  for (let agent of agents) {
+    grid[agent.pos.i][agent.pos.j].value = 2;
+    grid[agent.pos.i][agent.pos.j].owner = agent.name;
+  }
+}
+
+function calculateEntropy(agent) {
+  let owned = 0, active = 0;
+  for (let i = 0; i < gridSize; i++) {
+    for (let j = 0; j < gridSize; j++) {
+      let cell = grid[i][j];
+      if (cell.owner === agent.name) {
+        owned++;
+        if (cell.value === 1) active++;
+      }
+    }
+  }
+  return owned > 0 ? active / owned : 0;
+}
+
+class Agent {
+  constructor(name, pos, color, parents) {
+    this.name = name;
+    this.pos = pos;
+    this.color = color;
+    this.memory = [];
+    this.parents = parents;
+    this.entropyHistory = [];
+    this.readyToMate = false;
+  }
+
+  decide() {
+    let entropy = calculateEntropy(this);
+    this.entropyHistory.push(entropy);
+    if (this.entropyHistory.length > 10) this.entropyHistory.shift();
+    let avg = this.entropyHistory.reduce((a,b) => a + b, 0) / this.entropyHistory.length;
+    this.readyToMate = avg > 0.4;
+    return avg < 0.3 ? "stimulate" : "move";
+  }
+
+  move() {
+    let options = [
+      {i: this.pos.i - 1, j: this.pos.j},
+      {i: this.pos.i + 1, j: this.pos.j},
+      {i: this.pos.i, j: this.pos.j - 1},
+      {i: this.pos.i, j: this.pos.j + 1}
+    ];
+    let valid = options.filter(p =>
+      p.i >= 0 && p.i < gridSize &&
+      p.j >= 0 && p.j < gridSize &&
+      grid[p.i][p.j].value < 2
+    );
+    if (valid.length > 0) {
+      grid[this.pos.i][this.pos.j].value = 0;
+      let next = random(valid);
+      this.pos = {i: next.i, j: next.j};
+      grid[this.pos.i][this.pos.j].value = 2;
+      grid[this.pos.i][this.pos.j].owner = this.name;
+    }
+  }
+
+  stimulate() {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        let ni = this.pos.i + dx;
+        let nj = this.pos.j + dy;
+        if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+          let cell = grid[ni][nj];
+          if (cell.value === 0) {
+            cell.value = 1;
+            cell.owner = this.name;
+          }
+        }
+      }
+    }
+  }
+
+  tryMating() {
+    if (!this.readyToMate) return;
+    for (let other of agents) {
+      if (other !== this && other.readyToMate && dist(this.pos.i, this.pos.j, other.pos.i, other.pos.j) <= 1) {
+        let childName = this.name + "-" + other.name + "-" + frameCounter;
+        let childColor = lerpColor(color(this.color), color(other.color), 0.5);
+        let ci = constrain(this.pos.i + floor(random(-1, 2)), 0, gridSize - 1);
+        let cj = constrain(this.pos.j + floor(random(-1, 2)), 0, gridSize - 1);
+        let child = new Agent(childName, {i: ci, j: cj}, childColor.toString(), [this.name, other.name]);
+        child.memory = this.memory.slice(-5).concat(other.memory.slice(-5));
+        agents.push(child);
+        grid[ci][cj].value = 2;
+        grid[ci][cj].owner = child.name;
+        this.readyToMate = false;
+        other.readyToMate = false;
+        break;
+      }
+    }
+  }
+
+  log() {
+    this.memory.push({
+      frame: frameCounter,
+      entropy: calculateEntropy(this),
+      position: { ...this.pos }
+    });
+  }
+}
+
+function draw() {
+  background(0);
+  frameCounter++;
+
+  for (let agent of agents) {
+    let action = agent.decide();
+    if (action === "move") agent.move();
+    else if (action === "stimulate") agent.stimulate();
+    agent.tryMating();
+    agent.log();
+  }
+
+  drawGrid();
+}
+
+function drawGrid() {
+  for (let i = 0; i < gridSize; i++) {
+    for (let j = 0; j < gridSize; j++) {
+      stroke(50);
+      let cell = grid[i][j];
+      if (cell.value === 2) fill("white");
+      else if (cell.value === 1) fill(100);
+      else fill(0);
+      rect(j * cellSize, i * cellSize, cellSize, cellSize);
+    }
+  }
+}
+
+function downloadLog() {
+  const data = {};
+  for (let agent of agents) {
+    data[agent.name] = {
+      parents: agent.parents,
+      memory: agent.memory
+    };
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = "cognitive_scaffold_v8_1_mating_log.json";
+  a.click();
+}
+</script>
+</body>
+</html>
