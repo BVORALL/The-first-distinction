@@ -1,0 +1,184 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>The First Distinction – Cognitive Scaffold v8 (Temporal Communication)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <style>body { margin: 0; overflow: hidden; background-color: black; }</style>
+</head>
+<body>
+<button onclick="downloadLog()">Download Memory Log</button>
+<script>
+let gridSize = 20, cellSize = 20, zMax = 30;
+let layers = [], agents = [], frameCounter = 0;
+let temporalLog = [];
+
+function setup() {
+  createCanvas(windowWidth, windowHeight, WEBGL);
+  frameRate(5);
+  initGrid();
+  agents.push(new Agent("Alpha", {i: 10, j: 10}, "red"));
+  agents.push(new Agent("Beta", {i: 5, j: 5}, "blue"));
+}
+
+function initGrid() {
+  layers = [];
+  let baseLayer = [];
+  for (let i = 0; i < gridSize; i++) {
+    baseLayer[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      baseLayer[i][j] = 0;
+    }
+  }
+  layers.push(baseLayer);
+}
+
+function updateLayer(lastLayer) {
+  let newLayer = [];
+  for (let i = 0; i < gridSize; i++) {
+    newLayer[i] = [];
+    for (let j = 0; j < gridSize; j++) {
+      let sum = 0;
+      for (let x = -1; x <= 1; x++) {
+        for (let y = -1; y <= 1; y++) {
+          let ni = i + x;
+          let nj = j + y;
+          if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+            sum += lastLayer[ni][nj];
+          }
+        }
+      }
+      sum -= lastLayer[i][j];
+      newLayer[i][j] = (lastLayer[i][j] === 1 && (sum === 2 || sum === 3)) || (lastLayer[i][j] === 0 && sum === 3) ? 1 : 0;
+    }
+  }
+  return newLayer;
+}
+
+class Agent {
+  constructor(name, pos, color) {
+    this.name = name;
+    this.pos = pos;
+    this.color = color;
+    this.memory = [];
+    this.futureCallbacks = [];
+  }
+
+  act(currentEntropy) {
+    let dialogue = "";
+    if (frameCounter > 5) {
+      // Reflect on past
+      let past = this.memory.find(m => m.frame === frameCounter - 5);
+      if (past && past.entropy < currentEntropy) {
+        dialogue = "Learning from past success.";
+      } else if (past) {
+        dialogue = "Doubt in prior decision.";
+      }
+    }
+
+    if (frameCounter % 10 === 0) {
+      // Future callback
+      this.futureCallbacks.push({
+        triggerFrame: frameCounter + 5,
+        message: "Re-evaluate stimulation pattern."
+      });
+    }
+
+    for (let i = 0; i < this.futureCallbacks.length; i++) {
+      if (this.futureCallbacks[i].triggerFrame === frameCounter) {
+        dialogue = "Callback: " + this.futureCallbacks[i].message;
+        this.futureCallbacks.splice(i, 1);
+        break;
+      }
+    }
+
+    let choice = random() < 0.5 ? "stimulate" : "wait";
+    this.memory.push({
+      frame: frameCounter,
+      position: { ...this.pos },
+      entropy: currentEntropy,
+      action: choice,
+      dialogue
+    });
+
+    return choice;
+  }
+
+  stimulate(grid) {
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        let ni = this.pos.i + dx;
+        let nj = this.pos.j + dy;
+        if (ni >= 0 && ni < gridSize && nj >= 0 && nj < gridSize) {
+          grid[ni][nj] = 1;
+        }
+      }
+    }
+  }
+}
+
+function draw() {
+  background(0);
+  rotateX(PI / 4);
+  rotateZ(frameCount * 0.01);
+
+  let lastLayer = layers[layers.length - 1];
+  let entropy = calculateEntropy(lastLayer);
+
+  for (let agent of agents) {
+    let action = agent.act(entropy);
+    if (action === "stimulate") {
+      agent.stimulate(lastLayer);
+    }
+  }
+
+  let newLayer = updateLayer(lastLayer);
+  layers.push(newLayer);
+  if (layers.length > zMax) {
+    layers.shift();
+  }
+
+  drawLayers();
+
+  frameCounter++;
+}
+
+function calculateEntropy(grid) {
+  let flat = grid.flat();
+  let active = flat.filter(v => v === 1).length;
+  return active / flat.length;
+}
+
+function drawLayers() {
+  let zStep = cellSize * 1.2;
+  for (let z = 0; z < layers.length; z++) {
+    let layer = layers[z];
+    for (let i = 0; i < gridSize; i++) {
+      for (let j = 0; j < gridSize; j++) {
+        if (layer[i][j] === 1) {
+          push();
+          translate((i - gridSize/2) * cellSize, (j - gridSize/2) * cellSize, -z * zStep);
+          fill(255);
+          box(cellSize * 0.6);
+          pop();
+        }
+      }
+    }
+  }
+}
+
+function downloadLog() {
+  const data = {};
+  for (let agent of agents) {
+    data[agent.name] = agent.memory;
+  }
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = "cognitive_scaffold_v8_log.json";
+  a.click();
+}
+</script>
+</body>
+</html>
